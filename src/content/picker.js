@@ -27,6 +27,7 @@
       background: rgba(47, 111, 235, .06);
       pointer-events: none; display: none;
     }
+    .pp-sel { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }
     .pp-selbox {
       position: absolute; top: 0; left: 0; box-sizing: border-box;
       border: 2px solid #2F6FEB; border-radius: 3px;
@@ -40,6 +41,23 @@
       font: 600 11px/18px -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
       text-align: center;
     }
+    /* 每个选中块右上角的上下级切换按钮 */
+    .pp-nav {
+      position: absolute; top: -10px; right: -10px;
+      display: flex; gap: 3px; pointer-events: auto; z-index: 3;
+    }
+    .pp-navbtn {
+      all: unset; box-sizing: border-box; display: block; width: 18px; height: 18px;
+      border-radius: 4px; background: #1f4fd0; color: #fff;
+      font: 700 12px/18px -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      text-align: center; cursor: pointer; user-select: none;
+      pointer-events: auto;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+    }
+    .pp-navbtn:hover { background: #2F6FEB; }
+    .pp-navbtn[data-disabled] { opacity: .4; cursor: default; }
+    .pp-navbtn.pp-delbtn { background: #ef9a97; color: #fff; }
+    .pp-navbtn.pp-delbtn:hover { background: #f4aeab; }
     .pp-tag {
       position: absolute; top: 0; left: 0; box-sizing: border-box;
       display: none; align-items: center; gap: 6px; max-width: 70vw;
@@ -276,9 +294,44 @@
     box.className = "pp-selbox";
     const badge = document.createElement("div");
     badge.className = "pp-badge";
+    const nav = document.createElement("div");
+    nav.className = "pp-nav";
+    const up = document.createElement("button");
+    up.className = "pp-navbtn";
+    up.type = "button";
+    up.textContent = "↑";
+    up.setAttribute("data-pp-nav", "up");
+    up.title = "选上级";
+    const down = document.createElement("button");
+    down.className = "pp-navbtn";
+    down.type = "button";
+    down.textContent = "↓";
+    down.setAttribute("data-pp-nav", "down");
+    down.title = "回下层";
+    nav.appendChild(up);
+    nav.appendChild(down);
+    const del = document.createElement("button");
+    del.className = "pp-navbtn pp-delbtn";
+    del.type = "button";
+    del.textContent = "×";
+    del.setAttribute("data-pp-nav", "del");
+    del.title = "移出这一块";
+    nav.appendChild(del);
+    // 按钮的点击直接绑在自己身上（Shadow DOM 内），不依赖外部捕获阶段的识别
+    nav.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      const btn = ev.target && ev.target.closest ? ev.target.closest(".pp-navbtn") : null;
+      if (btn) onNavButtonClick(btn);
+    });
+    nav.addEventListener("mousedown", (ev) => { ev.preventDefault(); ev.stopPropagation(); });
+    nav.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); });
+    nav.addEventListener("mouseup", (ev) => { ev.stopPropagation(); });
     box.appendChild(badge);
+    box.appendChild(nav);
     selLayer.appendChild(box);
-    return { box, badge };
+    return { box, badge, nav, btnUp: up, btnDown: down, btnDel: del };
   }
 
   function syncSelections() {
@@ -295,7 +348,23 @@
       s.box.style.height = Math.round(Math.max(0, r.height)) + "px";
       s.box.style.display = r.width && r.height ? "block" : "none";
       s.badge.textContent = String(i + 1);
+      updateNavState(s);
     });
+  }
+
+  // 到顶/到底时把对应按钮置灰
+  function updateNavState(s) {
+    if (!s.btnUp || !s.btnDown) return;
+    const len = (s.navChain || []).length;
+    const canUp = s.navIdx + 1 < len;
+    const canDown = s.navIdx > 0;
+    setDisabled(s.btnUp, !canUp);
+    setDisabled(s.btnDown, !canDown);
+  }
+
+  function setDisabled(btn, disabled) {
+    if (disabled) btn.setAttribute("data-disabled", "");
+    else btn.removeAttribute("data-disabled");
   }
 
   function toggleSelection(el) {
@@ -304,16 +373,16 @@
       selections[i].box.remove();
       selections.splice(i, 1);
     } else {
-      const { box, badge } = makeSelBox();
-      selections.push({ el, box, badge, navChain: buildChain(el), navIdx: 0 });
+      const { box, badge, btnUp, btnDown, btnDel } = makeSelBox();
+      selections.push({ el, box, badge, btnUp, btnDown, btnDel, navChain: buildChain(el), navIdx: 0 });
     }
     syncSelections();
     refreshUI();
   }
 
-  // 多选模式下的 ↑↓：调整「刚选中」的那一块，而不是当前悬停的那块
-  function stepSelection(up) {
-    const s = selections[selections.length - 1];
+  // ↑↓：调整某一块（默认是「刚选中」的那块）的层级
+  function stepSelection(up, s) {
+    s = s || selections[selections.length - 1];
     if (!s) return false;
     if (!s.navChain) {
       s.navChain = buildChain(s.el);
@@ -332,17 +401,70 @@
     return true;
   }
 
+  // 点击某个选中块角上的 ↑/↓/× 按钮
+  function onNavButtonClick(btn) {
+    let s = selections.find(
+      (x) => x.btnUp === btn || x.btnDown === btn || x.btnDel === btn
+    );
+    // 兜底：能按 DOM 归属反推出是哪一块
+    if (!s) {
+      const box = btn.closest ? btn.closest(".pp-selbox") : null;
+      if (box) s = selections.find((x) => x.box === box);
+    }
+    if (!s) return;
+    if (btn.hasAttribute("data-disabled")) return;
+    const kind = btn.getAttribute("data-pp-nav");
+    if (kind === "del") {
+      s.box.remove();
+      const i = selections.indexOf(s);
+      if (i >= 0) selections.splice(i, 1);
+      syncSelections();
+      refreshUI();
+      return;
+    }
+    stepSelection(kind === "up", s);
+  }
+
+  // 事件是否落在自家的 ↑/↓ 按钮上（事件穿过 Shadow DOM，需要看 composedPath）
+  function navButtonFromEvent(e) {
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    for (const node of path) {
+      if (node && node.classList && node.classList.contains("pp-navbtn")) return node;
+    }
+    return null;
+  }
+
+  // 按坐标判断是不是点在某个选中块的按钮上（不依赖命中测试，最稳）
+  function navButtonAtPoint(x, y) {
+    for (const s of selections) {
+      const btns = [s.btnUp, s.btnDown, s.btnDel];
+      for (const btn of btns) {
+        if (!btn || !btn.isConnected) continue;
+        const r = btn.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return btn;
+      }
+    }
+    return null;
+  }
+
   /* ---------- 交互 ---------- */
 
   function onMouseMove(e) {
     // 打印态下鼠标不再改选，避免点击时目标被换掉；按着 Ctrl 时恢复跟随
     if (inPrintMode() || locked) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el || el === host) return;
+    if (!el || el === host || el.getRootNode() === shadow) return;
     setTarget(el);
   }
 
   function onClick(e) {
+    // 点在选中块角上的 ↑/↓/× 按钮：先按坐标判定（最可靠），再用事件路径兜底
+    const navBtn = navButtonAtPoint(e.clientX, e.clientY) || navButtonFromEvent(e);
+    if (navBtn) {
+      block(e);
+      onNavButtonClick(navBtn);
+      return;
+    }
     block(e);
     // 兜底：如果 Ctrl 的 keyup 没收到（比如焦点切走了），用点击事件里的修饰键状态纠正
     if (!e.ctrlKey && !e.metaKey && ctrlHeld) {
@@ -350,7 +472,7 @@
     }
     if (!locked) {
       const hit = document.elementFromPoint(e.clientX, e.clientY);
-      if (hit && hit !== host) setTarget(hit);
+      if (hit && hit !== host && hit.getRootNode() !== shadow) setTarget(hit);
     }
     const el = chain[index];
     if (!el || !el.isConnected) return;
@@ -404,11 +526,17 @@
     }
   }
 
+  // 鼠标按下类事件：落在自家按钮上就不拦截，交给按钮自己的监听
+  function onPressBlock(e) {
+    if (navButtonFromEvent(e)) return;
+    block(e);
+  }
+
   on("mousemove", onMouseMove);
   on("click", onClick);
-  on("mousedown", block);
-  on("mouseup", block);
-  on("pointerdown", block);
+  on("mousedown", onPressBlock);
+  on("mouseup", onPressBlock);
+  on("pointerdown", onPressBlock);
   on("dblclick", block);
   on("auxclick", block);
   on("contextmenu", block);
