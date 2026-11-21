@@ -278,7 +278,7 @@
 
   /* ---------- 打印 ---------- */
 
-  const DEFAULT_SETTINGS = { divPageBreak: true };
+  const DEFAULT_SETTINGS = { divPageBreak: false };
 
   function loadSettings() {
     return new Promise((resolve) => {
@@ -329,10 +329,10 @@
     }
     el.setAttribute(ROOT_ATTR, "1");
 
-    // 一级子节点若是并列的若干 div，则从第二个起各自另起一页（选项页可关闭）
-    const kids = settings.divPageBreak === false
-      ? []
-      : Array.from(el.children).filter((c) => c.tagName === "DIV");
+    // 一级子节点若是并列的若干 div，则从第二个起各自另起一页（选项页可开启，默认关闭）
+    const kids = settings.divPageBreak === true
+      ? Array.from(el.children).filter((c) => c.tagName === "DIV")
+      : [];
     if (kids.length > 1) {
       // 父容器是 flex/grid 时，分页规则会被忽略，打印时退回块级
       if (/flex|grid/.test(getComputedStyle(el).display)) el.setAttribute(BLOCK_ATTR, "1");

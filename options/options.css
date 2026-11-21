@@ -111,9 +111,12 @@ code {
 }
 
 .track {
-  display: block;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
   width: 42px;
   height: 24px;
+  padding: 3px;
   border-radius: 999px;
   background: #c9ced6;
   transition: background .18s ease;
@@ -125,9 +128,10 @@ code {
 
 .track .knob {
   display: block;
+  flex: none;
   width: 18px;
   height: 18px;
-  margin: 3px;
+  margin: 0;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, .2);

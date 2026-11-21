@@ -1,5 +1,5 @@
 /* Print Picker 选项页 */
-const DEFAULTS = { divPageBreak: true };
+const DEFAULTS = { divPageBreak: false };
 
 const input = document.getElementById("divPageBreak");
 const hint = document.getElementById("hint");
@@ -13,7 +13,7 @@ function flash(text) {
 }
 
 chrome.storage.sync.get(DEFAULTS, (value) => {
-  input.checked = value.divPageBreak !== false;
+  input.checked = value.divPageBreak === true;
 });
 
 input.addEventListener("change", () => {
