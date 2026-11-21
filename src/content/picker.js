@@ -81,6 +81,27 @@
       display: inline-block; padding: 0 5px; margin: 0 2px 0 10px;
       border-radius: 4px; background: rgba(255, 255, 255, .14); font-weight: 600;
     }
+    /* 选择器输入条 */
+    .pp-inputbar {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      display: none; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 8px;
+      background: rgba(17, 24, 39, .95); color: #f3f4f6;
+      font: 12.5px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, .28); white-space: nowrap;
+      pointer-events: auto;
+    }
+    .pp-input {
+      all: unset; box-sizing: border-box; display: block;
+      width: 320px; max-width: 56vw; padding: 5px 9px;
+      border: 1.5px solid #2F6FEB; border-radius: 5px;
+      background: #fff; color: #111827; cursor: text; user-select: text;
+      font: 12.5px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    .pp-input.pp-bad { border-color: #e5534b; }
+    .pp-input::placeholder { color: #9aa3ae; }
+    .pp-hint { flex: none; opacity: .85; }
+    .pp-hint.pp-err { color: #ffb4ae; }
   `;
 
   const PRINT_CSS = `
@@ -139,17 +160,28 @@
     `<div class="pp-tag"><span class="pp-brand">Print Picker</span><span class="pp-name"></span><span class="pp-dim"></span></div>` +
     `<div class="pp-bar"><span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>` +
     `<span class="pp-key">Tab</span>选上级<span class="pp-key">↓</span>回下层` +
-    `<span class="pp-key">Enter</span>打印<span class="pp-key">Esc</span>取消</div>`;
+    `<span class="pp-key">/</span>选择器<span class="pp-key">Enter</span>打印` +
+    `<span class="pp-key">Esc</span>取消</div>` +
+    `<div class="pp-inputbar">` +
+    `<input class="pp-input" type="text" spellcheck="false" autocomplete="off" ` +
+    `placeholder="CSS 选择器，如 main .card">` +
+    `<span class="pp-hint"></span></div>`;
 
   const selLayer = shadow.querySelector(".pp-sel");
   const boxEl = shadow.querySelector(".pp-box");
   const tagEl = shadow.querySelector(".pp-tag");
   const barEl = shadow.querySelector(".pp-bar");
+  const inputBarEl = shadow.querySelector(".pp-inputbar");
+  const inputEl = shadow.querySelector(".pp-input");
+  const hintEl = shadow.querySelector(".pp-hint");
   const nameEl = shadow.querySelector(".pp-name");
   const dimEl = shadow.querySelector(".pp-dim");
   const selections = []; // [{ el, box, badge }]
 
   /* ---------- 工具 ---------- */
+
+  // 选择器输入框是否打开
+  let selectorOpen = false;
 
   // 打印态 = 已有选中项，且已经松开 Ctrl/⌘
   let ctrlHeld = false;
@@ -164,9 +196,9 @@
   } catch (e) { /* 扩展上下文失效时退回默认光标 */ }
 
   function applyCursor() {
-    const cursor = inPrintMode() && printCursorUrl
-      ? `url("${printCursorUrl}") 16 16, pointer`
-      : "crosshair";
+    let cursor = "crosshair";
+    if (selectorOpen) cursor = "default";
+    else if (inPrintMode() && printCursorUrl) cursor = `url("${printCursorUrl}") 16 16, pointer`;
     cursorStyle.textContent =
       `html, html * { cursor: ${cursor} !important; ` +
       `-webkit-user-select: none !important; user-select: none !important; }`;
@@ -449,9 +481,117 @@
     return null;
   }
 
+  /* ---------- 选择器输入 ---------- */
+
+  function querySelectorMatches(text) {
+    const v = (text || "").trim();
+    if (!v) return { ok: true, els: [] };
+    let els;
+    try {
+      els = Array.from(document.querySelectorAll(v));
+    } catch (err) {
+      return { ok: false, els: [] };
+    }
+    // 排除自家浮层节点
+    els = els.filter((el) => el !== host && el.isConnected && !host.contains(el));
+    return { ok: true, els };
+  }
+
+  function setHint(text, isErr) {
+    if (!hintEl) return;
+    hintEl.textContent = text;
+    if (isErr) hintEl.classList.add("pp-err");
+    else hintEl.classList.remove("pp-err");
+  }
+
+  function openSelector() {
+    if (selectorOpen) return;
+    selectorOpen = true;
+    locked = false;
+    inputEl.value = "";
+    inputEl.classList.remove("pp-bad");
+    setHint("Enter 确认 · Esc 取消", false);
+    barEl.style.display = "none";
+    inputBarEl.style.display = "flex";
+    applyCursor();
+    try { inputEl.focus(); } catch (e) { /* ignore */ }
+  }
+
+  function closeSelector() {
+    if (!selectorOpen) return;
+    selectorOpen = false;
+    inputBarEl.style.display = "none";
+    barEl.style.display = "";
+    try { inputEl.blur(); } catch (e) { /* ignore */ }
+    refreshUI();
+  }
+
+  function onSelectorInput() {
+    const r = querySelectorMatches(inputEl.value);
+    if (!r.ok) {
+      inputEl.classList.add("pp-bad");
+      setHint("无效的选择器", true);
+      return;
+    }
+    inputEl.classList.remove("pp-bad");
+    if (!(inputEl.value || "").trim()) {
+      setHint("Enter 确认 · Esc 取消", false);
+      return;
+    }
+    if (!r.els.length) {
+      setHint("没有匹配到元素", true);
+      return;
+    }
+    setHint(r.els.length === 1 ? "找到 1 个" : `找到 ${r.els.length} 个`, false);
+    // 实时预览第一个命中
+    setTarget(r.els[0]);
+    locked = false;
+    queuePaint();
+  }
+
+  function commitSelector() {
+    const r = querySelectorMatches(inputEl.value);
+    if (!r.ok) {
+      inputEl.classList.add("pp-bad");
+      setHint("无效的选择器", true);
+      return;
+    }
+    if (!r.els.length) {
+      setHint("没有匹配到元素", true);
+      return;
+    }
+    const els = r.els;
+    if (els.length === 1) {
+      setTarget(els[0]);
+      locked = false;
+      closeSelector();
+      return;
+    }
+    // 多个命中：整批加入多选（已在多选里的跳过）
+    els.forEach((el) => {
+      if (selections.some((s) => s.el === el)) return;
+      const { box, badge, btnUp, btnDown, btnDel } = makeSelBox();
+      selections.push({ el, box, badge, btnUp, btnDown, btnDel, navChain: buildChain(el), navIdx: 0 });
+    });
+    setTarget(els[0]);
+    locked = false;
+    closeSelector();
+  }
+
+  // 事件是否落在某个自家 UI 容器上（Shadow DOM 内，需要 composedPath）
+  function shadowHit(e, cls) {
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    for (const node of path) {
+      if (node && node.classList && node.classList.contains(cls)) return node;
+    }
+    return null;
+  }
+
   /* ---------- 交互 ---------- */
 
   function onMouseMove(e) {
+    // 选择器输入中：鼠标不改目标，保持预览
+    if (selectorOpen) return;
     // 打印态下鼠标不再改选，避免点击时目标被换掉；按着 Ctrl 时恢复跟随
     if (inPrintMode() || locked) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -460,6 +600,14 @@
   }
 
   function onClick(e) {
+    // 选择器输入条上的点击：放行，交给输入框自己
+    if (shadowHit(e, "pp-inputbar")) return;
+    // 输入中点到页面别处：取消输入，不动选中项，也不打印
+    if (selectorOpen) {
+      block(e);
+      closeSelector();
+      return;
+    }
     // 点在选中块角上的 ↑/↓/× 按钮：先按坐标判定（最可靠），再用事件路径兜底
     const navBtn = navButtonAtPoint(e.clientX, e.clientY) || navButtonFromEvent(e);
     if (navBtn) {
@@ -487,7 +635,15 @@
   }
 
   function onKeyDown(e) {
+    // 选择器输入中：所有按键都交给输入框本身（Enter/Esc 由它的监听处理）
+    if (selectorOpen) return;
     const k = e.key;
+    // "/" 打开选择器输入
+    if (k === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      block(e);
+      openSelector();
+      return;
+    }
     // Ctrl/⌘ 按下 → 回到选取态（可继续增删），不拦截按键本身
     if (k === "Control" || k === "Meta") {
       if (!ctrlHeld) {
@@ -533,6 +689,7 @@
 
   // 鼠标按下类事件：落在自家按钮上就不拦截，交给按钮自己的监听
   function onPressBlock(e) {
+    if (shadowHit(e, "pp-inputbar")) return; // 输入框内放行
     if (navButtonFromEvent(e)) return;
     block(e);
   }
@@ -551,6 +708,23 @@
   on("keyup", onKeyUp);
   on("scroll", queuePaint, true);
   on("resize", queuePaint, true);
+
+  // 选择器输入框自己的事件
+  inputEl.addEventListener("input", onSelectorInput);
+  inputEl.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      commitSelector();
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeSelector();
+    }
+  });
+  inputEl.addEventListener("mousedown", (ev) => ev.stopPropagation());
+  inputEl.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  inputEl.addEventListener("click", (ev) => ev.stopPropagation());
 
   const cursorStyle = document.createElement("style");
   cursorStyle.id = CURSOR_STYLE_ID;
