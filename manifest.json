@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Print Picker",
+  "version": "1.0.0",
+  "description": "在页面上选取任意元素，按 ↑ 选上级、Enter 确认，只把选中的内容交给浏览器打印。",
+  "action": {
+    "default_title": "选取要打印的区域"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "permissions": ["activeTab", "scripting"],
+  "minimum_chrome_version": "100"
+}
