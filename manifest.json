@@ -21,6 +21,10 @@
   "background": {
     "service_worker": "src/background.js"
   },
-  "permissions": ["activeTab", "scripting"],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
   "minimum_chrome_version": "100"
 }

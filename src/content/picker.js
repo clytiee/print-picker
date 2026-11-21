@@ -278,6 +278,20 @@
 
   /* ---------- 打印 ---------- */
 
+  const DEFAULT_SETTINGS = { divPageBreak: true };
+
+  function loadSettings() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.sync.get(DEFAULT_SETTINGS, (v) => {
+          resolve(Object.assign({}, DEFAULT_SETTINGS, v || {}));
+        });
+      } catch (e) {
+        resolve(Object.assign({}, DEFAULT_SETTINGS));
+      }
+    });
+  }
+
   function cleanupPrint() {
     const style = document.getElementById(PRINT_STYLE_ID);
     if (style) style.remove();
@@ -289,7 +303,7 @@
     document.querySelectorAll(`[${ROOT_ATTR}]`).forEach((n) => n.removeAttribute(ROOT_ATTR));
   }
 
-  function printOnly(el) {
+  function printOnly(el, settings) {
     const scroll = { x: window.scrollX, y: window.scrollY };
 
     // 逐级隐藏兄弟节点：只剩下 el 这一支
@@ -315,8 +329,10 @@
     }
     el.setAttribute(ROOT_ATTR, "1");
 
-    // 一级子节点若是并列的若干 div，则从第二个起各自另起一页
-    const kids = Array.from(el.children).filter((c) => c.tagName === "DIV");
+    // 一级子节点若是并列的若干 div，则从第二个起各自另起一页（选项页可关闭）
+    const kids = settings.divPageBreak === false
+      ? []
+      : Array.from(el.children).filter((c) => c.tagName === "DIV");
     if (kids.length > 1) {
       // 父容器是 flex/grid 时，分页规则会被忽略，打印时退回块级
       if (/flex|grid/.test(getComputedStyle(el).display)) el.setAttribute(BLOCK_ATTR, "1");
@@ -364,7 +380,7 @@
     }
     detach();
     delete window[KEY];
-    printOnly(el);
+    loadSettings().then((settings) => printOnly(el, settings));
   }
 
   window[KEY] = { cancel };

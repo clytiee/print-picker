@@ -16,11 +16,18 @@
 4. 回车或鼠标左键确认 → 直接唤起浏览器打印对话框，只输出选中元素。
 5. **Esc** 取消；选取模式下再点一次图标也是取消。
 
+## 选项
+
+在 `chrome://extensions` 里点本扩展的「详情 → 扩展选项」（或右键工具栏图标选「选项」）打开设置页：
+
+- **一级子节点分页**（默认开启）：选中元素的一级子节点若是并列的 `div`，打印时从第二个起各自另起一页；关掉则整块内容连续排布。改动即时生效，无需重载扩展或刷新页面。
+
 ## 结构
 
 ```
 manifest.json
 icons/                   16/32/48/128 图标
+options/                 选项页（一级 div 分页开关）
 LICENSE                  PolyForm Noncommercial 1.0.0
 src/background.js        点击图标 → 向当前标签页注入选取脚本
 src/content/picker.js    选取浮层 + 打印隔离逻辑（单文件，无外部依赖）
@@ -32,7 +39,7 @@ src/content/picker.js    选取浮层 + 打印隔离逻辑（单文件，无外�
 - 打印时不给选中元素套克隆，而是**逐级隐藏兄弟节点**（`data-pp-hide` + `@media print { display:none !important }`），并给祖先链（`data-pp-chain`）还原 `position: static / overflow: visible / height: auto`，避免元素被固定定位或滚动容器裁成半页。
 - 加了 `print-color-adjust: exact`，背景色、底纹按原样打印。
 - 打印时清空 `html` / `body` 的底色（连带背景图、渐变），避免整页灰底被一起打印；只去掉选中元素自身的 `box-shadow`，内部卡片阴影保留。
-- 选中元素的一级子节点若是并列的若干 `div`，从第二个起自动加分页（`break-before: page`），首个留在第一页；父容器是 flex/grid（会忽略分页规则）或子节点是行内级时，打印时临时转成块级让分页生效。
+- 选中元素的一级子节点若是并列的若干 `div`，从第二个起自动加分页（`break-before: page`），首个留在第一页；父容器是 flex/grid（会忽略分页规则）或子节点是行内级时，打印时临时转成块级让分页生效。该行为可在选项页关闭（`chrome.storage.sync` 存 `divPageBreak`，打印时实时读取）。
 - 打印结束后（`afterprint` / 窗口重新获得焦点）移除临时样式并恢复滚动位置。
 
 ## 已知限制

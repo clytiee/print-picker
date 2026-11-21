@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Print Picker 选项</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="brand">
+      <img class="logo" src="../icons/icon128.png" alt="" width="32" height="32" />
+      <div>
+        <h1>Print Picker</h1>
+        <p class="sub">选项设置</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <div class="text">
+          <h2>一级子节点分页</h2>
+          <p>选中元素的一级子节点若是并列的若干 <code>div</code>，打印时从第二个起各自另起一页；关闭后整块内容连续排布。</p>
+        </div>
+        <label class="switch">
+          <input id="divPageBreak" type="checkbox" />
+          <span class="track"><span class="knob"></span></span>
+        </label>
+      </div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <footer class="foot">
+      <p>设置保存在浏览器账号内，改动即时生效，无需重载扩展。</p>
+    </footer>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>
