@@ -26,5 +26,11 @@
     "open_in_tab": true
   },
   "permissions": ["activeTab", "scripting", "storage"],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/print32.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "minimum_chrome_version": "100"
 }

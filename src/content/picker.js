@@ -23,9 +23,22 @@
   const UI_CSS = `
     .pp-box {
       position: absolute; top: 0; left: 0; box-sizing: border-box;
-      border: 2px solid #2F6FEB; border-radius: 3px;
-      background: rgba(47, 111, 235, .08);
+      border: 2px dashed #2F6FEB; border-radius: 3px;
+      background: rgba(47, 111, 235, .06);
       pointer-events: none; display: none;
+    }
+    .pp-selbox {
+      position: absolute; top: 0; left: 0; box-sizing: border-box;
+      border: 2px solid #2F6FEB; border-radius: 3px;
+      background: rgba(47, 111, 235, .13);
+      pointer-events: none;
+    }
+    .pp-badge {
+      position: absolute; top: -10px; left: -10px; box-sizing: border-box;
+      min-width: 18px; height: 18px; padding: 0 3px;
+      border-radius: 9px; background: #1f4fd0; color: #fff;
+      font: 600 11px/18px -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      text-align: center;
     }
     .pp-tag {
       position: absolute; top: 0; left: 0; box-sizing: border-box;
@@ -56,6 +69,8 @@
     @page { margin: 12mm; }
     @media print {
       [${HIDE_ATTR}] { display: none !important; }
+      /* 兜底：任何残留的选取浮层都不进入打印 */
+      #pp-root { display: none !important; }
       /* 清掉页面底色（含渐变/背景图），避免连带打印出整页灰底 */
       html, body {
         background: #fff !important;
@@ -101,17 +116,68 @@
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML =
     `<style>${UI_CSS}</style>` +
+    `<div class="pp-sel"></div>` +
     `<div class="pp-box"></div>` +
     `<div class="pp-tag"><span class="pp-brand">Print Picker</span><span class="pp-name"></span><span class="pp-dim"></span></div>` +
-    `<div class="pp-bar"><span class="pp-key">↑</span>选上级<span class="pp-key">↓</span>回下层` +
-    `<span class="pp-key">Enter</span>打印<span class="pp-key">Esc</span>取消</div>`;
+    `<div class="pp-bar"><span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>选上级` +
+    `<span class="pp-key">↓</span>回下层<span class="pp-key">Enter</span>打印<span class="pp-key">Esc</span>取消</div>`;
 
+  const selLayer = shadow.querySelector(".pp-sel");
   const boxEl = shadow.querySelector(".pp-box");
   const tagEl = shadow.querySelector(".pp-tag");
+  const barEl = shadow.querySelector(".pp-bar");
   const nameEl = shadow.querySelector(".pp-name");
   const dimEl = shadow.querySelector(".pp-dim");
+  const selections = []; // [{ el, box, badge }]
 
   /* ---------- 工具 ---------- */
+
+  // 打印态 = 已有选中项，且已经松开 Ctrl/⌘
+  let ctrlHeld = false;
+  function inPrintMode() {
+    return selections.length > 0 && !ctrlHeld;
+  }
+
+  // 打印态光标：换成打印机光标，提示「点一下就打」
+  let printCursorUrl = "";
+  try {
+    printCursorUrl = chrome.runtime.getURL("icons/print32.png");
+  } catch (e) { /* 扩展上下文失效时退回默认光标 */ }
+
+  function applyCursor() {
+    const cursor = inPrintMode() && printCursorUrl
+      ? `url("${printCursorUrl}") 16 16, pointer`
+      : "crosshair";
+    cursorStyle.textContent =
+      `html, html * { cursor: ${cursor} !important; ` +
+      `-webkit-user-select: none !important; user-select: none !important; }`;
+  }
+
+  function refreshUI() {
+    applyCursor();
+    updateBar();
+    queuePaint();
+  }
+
+  function updateBar() {
+    if (!barEl) return;
+    if (inPrintMode()) {
+      barEl.innerHTML =
+        `<span class="pp-key">点击</span>任意位置打印已选 ${selections.length} 块` +
+        `<span class="pp-key">↑</span><span class="pp-key">↓</span>调整刚选的` +
+        `<span class="pp-key">Ctrl</span>点击增删<span class="pp-key">Esc</span>取消`;
+    } else if (selections.length) {
+      barEl.innerHTML =
+        `已选 ${selections.length} 块 · 松开 Ctrl 后点击任意位置打印` +
+        `<span class="pp-key">↑</span><span class="pp-key">↓</span>调整刚选的` +
+        `<span class="pp-key">Ctrl</span>点击增删<span class="pp-key">Esc</span>取消`;
+    } else {
+      barEl.innerHTML =
+        `<span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>选上级` +
+        `<span class="pp-key">↓</span>回下层<span class="pp-key">Enter</span>打印` +
+        `<span class="pp-key">Esc</span>取消`;
+    }
+  }
 
   function on(type, fn, opts) {
     window.addEventListener(type, fn, opts || true);
@@ -152,6 +218,13 @@
   /* ---------- 绘制 ---------- */
 
   function paint() {
+    syncSelections();
+    // 打印态：不再跟随鼠标，只显示已选区域的实线框
+    if (inPrintMode()) {
+      boxEl.style.display = "none";
+      tagEl.style.display = "none";
+      return;
+    }
     const el = chain[index];
     if (!alive || !el || !el.isConnected) {
       boxEl.style.display = "none";
@@ -165,7 +238,8 @@
     boxEl.style.width = Math.round(Math.max(0, r.width)) + "px";
     boxEl.style.height = Math.round(Math.max(0, r.height)) + "px";
 
-    nameEl.textContent = describe(el);
+    nameEl.textContent =
+      describe(el) + (selections.length ? ` · 已选 ${selections.length}` : "");
     dimEl.textContent = `${Math.round(r.width)} × ${Math.round(r.height)}`;
     tagEl.style.display = "flex";
 
@@ -195,10 +269,74 @@
     queuePaint();
   }
 
+  /* ---------- 多选 ---------- */
+
+  function makeSelBox() {
+    const box = document.createElement("div");
+    box.className = "pp-selbox";
+    const badge = document.createElement("div");
+    badge.className = "pp-badge";
+    box.appendChild(badge);
+    selLayer.appendChild(box);
+    return { box, badge };
+  }
+
+  function syncSelections() {
+    for (let i = selections.length - 1; i >= 0; i--) {
+      if (!selections[i].el.isConnected) {
+        selections[i].box.remove();
+        selections.splice(i, 1);
+      }
+    }
+    selections.forEach((s, i) => {
+      const r = s.el.getBoundingClientRect();
+      s.box.style.transform = `translate(${Math.round(r.left)}px,${Math.round(r.top)}px)`;
+      s.box.style.width = Math.round(Math.max(0, r.width)) + "px";
+      s.box.style.height = Math.round(Math.max(0, r.height)) + "px";
+      s.box.style.display = r.width && r.height ? "block" : "none";
+      s.badge.textContent = String(i + 1);
+    });
+  }
+
+  function toggleSelection(el) {
+    const i = selections.findIndex((s) => s.el === el);
+    if (i >= 0) {
+      selections[i].box.remove();
+      selections.splice(i, 1);
+    } else {
+      const { box, badge } = makeSelBox();
+      selections.push({ el, box, badge, navChain: buildChain(el), navIdx: 0 });
+    }
+    syncSelections();
+    refreshUI();
+  }
+
+  // 多选模式下的 ↑↓：调整「刚选中」的那一块，而不是当前悬停的那块
+  function stepSelection(up) {
+    const s = selections[selections.length - 1];
+    if (!s) return false;
+    if (!s.navChain) {
+      s.navChain = buildChain(s.el);
+      s.navIdx = 0;
+    }
+    const next = up ? s.navIdx + 1 : s.navIdx - 1;
+    if (next < 0 || next >= s.navChain.length) return true; // 已经到头，什么都不做
+    const el = s.navChain[next];
+    if (!el) return true;
+    // 目标已经是另一个选中块，就不动，避免出现重复选中
+    if (selections.some((x) => x.el === el)) return true;
+    s.navIdx = next;
+    s.el = el;
+    syncSelections();
+    refreshUI();
+    return true;
+  }
+
   /* ---------- 交互 ---------- */
 
   function onMouseMove(e) {
-    if (locked) return;
+    // 打印态下鼠标不再改选，避免点击时目标被换掉；按着 Ctrl 时恢复跟随
+    if (inPrintMode() || locked) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === host) return;
     setTarget(el);
@@ -206,23 +344,44 @@
 
   function onClick(e) {
     block(e);
+    // 兜底：如果 Ctrl 的 keyup 没收到（比如焦点切走了），用点击事件里的修饰键状态纠正
+    if (!e.ctrlKey && !e.metaKey && ctrlHeld) {
+      ctrlHeld = false;
+    }
     if (!locked) {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      if (el && el !== host) setTarget(el);
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      if (hit && hit !== host) setTarget(hit);
+    }
+    const el = chain[index];
+    if (!el || !el.isConnected) return;
+    // Ctrl/⌘ + 点击 = 加入或移出多选，不触发打印
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelection(el);
+      return;
     }
     confirm();
   }
 
   function onKeyDown(e) {
     const k = e.key;
+    // Ctrl/⌘ 按下 → 回到选取态（可继续增删），不拦截按键本身
+    if (k === "Control" || k === "Meta") {
+      if (!ctrlHeld) {
+        ctrlHeld = true;
+        refreshUI();
+      }
+      return;
+    }
     if (k === "ArrowUp") {
       block(e);
+      if (selections.length) { stepSelection(true); return; }
       if (!chain.length) return;
       index = Math.min(index + 1, chain.length - 1);
       locked = true;
       queuePaint();
     } else if (k === "ArrowDown") {
       block(e);
+      if (selections.length) { stepSelection(false); return; }
       if (!chain.length) return;
       index = Math.max(index - 1, 0);
       if (index === 0) locked = false;
@@ -233,6 +392,15 @@
     } else if (k === "Escape") {
       block(e);
       cancel();
+    }
+  }
+
+  // 松开 Ctrl/⌘ → 进入打印态：光标变打印机，点任意位置即打印
+  function onKeyUp(e) {
+    if (e.key !== "Control" && e.key !== "Meta") return;
+    if (ctrlHeld) {
+      ctrlHeld = false;
+      refreshUI();
     }
   }
 
@@ -247,15 +415,16 @@
   on("dragstart", block);
   on("selectstart", block);
   on("keydown", onKeyDown);
+  on("keyup", onKeyUp);
   on("scroll", queuePaint, true);
   on("resize", queuePaint, true);
 
   const cursorStyle = document.createElement("style");
   cursorStyle.id = CURSOR_STYLE_ID;
-  cursorStyle.textContent =
-    "html, html * { cursor: crosshair !important; -webkit-user-select: none !important; user-select: none !important; }";
   document.documentElement.appendChild(cursorStyle);
   document.documentElement.appendChild(host);
+  updateBar();
+  applyCursor();
 
   /* ---------- 收尾 ---------- */
 
@@ -303,48 +472,64 @@
     document.querySelectorAll(`[${ROOT_ATTR}]`).forEach((n) => n.removeAttribute(ROOT_ATTR));
   }
 
-  function printOnly(el, settings) {
+  // 并列一级 div 分页：从第二个起各自另起一页
+  function markPageBreaks(el) {
+    const kids = Array.from(el.children).filter((c) => c.tagName === "DIV");
+    if (kids.length < 2) return;
+    // 父容器是 flex/grid 时，分页规则会被忽略，打印时退回块级
+    if (/flex|grid/.test(getComputedStyle(el).display)) el.setAttribute(BLOCK_ATTR, "1");
+
+    kids.slice(1).forEach((kid) => {
+      kid.setAttribute(PAGE_ATTR, "1");
+      // 行内级子节点撑不开分页，先转成块级
+      const d = getComputedStyle(kid).display;
+      if (/^(inline|inline-block|inline-flex|inline-grid|inline-table|table-cell)$/.test(d)) {
+        kid.setAttribute(PBLOCK_ATTR, "1");
+      }
+    });
+  }
+
+  function printOnly(roots, settings) {
     const scroll = { x: window.scrollX, y: window.scrollY };
 
-    // 逐级隐藏兄弟节点：只剩下 el 这一支
-    let node = el;
-    while (node && node !== document.body && node.parentElement) {
-      for (const sib of Array.from(node.parentElement.children)) {
-        if (sib !== node) sib.setAttribute(HIDE_ATTR, "1");
+    // 打印前把选取浮层、提示条、十字光标彻底移出页面
+    const overlay = document.getElementById("pp-root");
+    if (overlay) overlay.remove();
+    const cursorEl = document.getElementById(CURSOR_STYLE_ID);
+    if (cursorEl) cursorEl.remove();
+
+    // 保留集合：所有选中元素及其祖先链的并集
+    const keep = new Set();
+    for (const root of roots) {
+      let n = root;
+      while (n && n !== document.documentElement) {
+        keep.add(n);
+        n = n.parentElement;
       }
-      node = node.parentElement;
+    }
+
+    // 逐级隐藏不在保留集合里的兄弟节点
+    for (const node of keep) {
+      const parent = node.parentElement;
+      if (!parent || parent === document.documentElement) continue;
+      for (const sib of Array.from(parent.children)) {
+        if (!keep.has(sib)) sib.setAttribute(HIDE_ATTR, "1");
+      }
     }
     // body 之外的兄弟节点（保留 head 等）
     for (const sib of Array.from(document.documentElement.children)) {
-      if (sib === document.body) continue;
+      if (sib === document.body || keep.has(sib)) continue;
       if (["HEAD", "STYLE", "LINK", "SCRIPT"].includes(sib.tagName)) continue;
       sib.setAttribute(HIDE_ATTR, "1");
     }
 
     // 标记祖先链，打印时恢复文档流
-    let n = el;
-    while (n && n !== document.documentElement) {
-      n.setAttribute(CHAIN_ATTR, "1");
-      n = n.parentElement;
-    }
-    el.setAttribute(ROOT_ATTR, "1");
+    keep.forEach((n) => n.setAttribute(CHAIN_ATTR, "1"));
+    roots.forEach((r) => r.setAttribute(ROOT_ATTR, "1"));
 
     // 一级子节点若是并列的若干 div，则从第二个起各自另起一页（选项页可开启，默认关闭）
-    const kids = settings.divPageBreak === true
-      ? Array.from(el.children).filter((c) => c.tagName === "DIV")
-      : [];
-    if (kids.length > 1) {
-      // 父容器是 flex/grid 时，分页规则会被忽略，打印时退回块级
-      if (/flex|grid/.test(getComputedStyle(el).display)) el.setAttribute(BLOCK_ATTR, "1");
-
-      kids.slice(1).forEach((kid) => {
-        kid.setAttribute(PAGE_ATTR, "1");
-        // 行内级子节点撑不开分页，先转成块级
-        const d = getComputedStyle(kid).display;
-        if (/^(inline|inline-block|inline-flex|inline-grid|inline-table|table-cell)$/.test(d)) {
-          kid.setAttribute(PBLOCK_ATTR, "1");
-        }
-      });
+    if (settings.divPageBreak === true) {
+      roots.forEach(markPageBreaks);
     }
 
     const style = document.createElement("style");
@@ -373,14 +558,23 @@
   }
 
   function confirm() {
-    const el = chain[index];
-    if (!el || !el.isConnected) {
+    // 有多选时打印全部选中项，否则打印当前指向的这一块
+    const roots = selections.length
+      ? selections.map((s) => s.el).filter((el) => el && el.isConnected)
+      : [chain[index]].filter((el) => el && el.isConnected);
+
+    if (!roots.length) {
       cancel();
       return;
     }
+    // 先撤掉选取框与提示，再等两次重绘让页面画干净，最后才唤起打印窗口
     detach();
     delete window[KEY];
-    loadSettings().then((settings) => printOnly(el, settings));
+    loadSettings().then((settings) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => printOnly(roots, settings));
+      });
+    });
   }
 
   window[KEY] = { cancel };

@@ -13,8 +13,12 @@
 1. 打开目标页面，点工具栏的 Print Picker 图标，进入选取模式（页面变十字光标）。
 2. 移动鼠标，蓝色框就是待打印区域；蓝色标签显示 `Print Picker · 元素名 · 宽 × 高`。
 3. 按 **↑** 上选父级（可连续按，直到 `body`），按 **↓** 逐层退回。
-4. 回车或鼠标左键确认 → 直接唤起浏览器打印对话框，只输出选中元素。
-5. **Esc** 取消；选取模式下再点一次图标也是取消。
+4. 按住 **Ctrl**（macOS 用 ⌘）点击可多选：每块被选中的区域显示实线框和序号角标，再次 Ctrl 点击同一块即移出。
+5. 按住 Ctrl 期间仍是选取态（十字光标、可继续 Ctrl 点击增删）；**松开 Ctrl** 后才进入打印态：光标变成打印机光标，虚线框与元素标签消失，点页面任意位置（或按 Enter）即打印已选的那几块。
+6. 再按住 Ctrl 可回到选取态继续增删；多选状态下 ↑ / ↓ 调整为**刚刚选中**的那一块（换父级或退回子级），其他已选块不动；目标已经是别的选中块时不动，避免重复选中。
+7. 把选中项删光、按 Esc 或退出后光标恢复十字；十字态下 ↑ / ↓ 仍作用于当前悬停的元素。
+8. 没有选中项时，回车或左键点击直接打印当前虚线框框住的那一块。
+9. **Esc** 取消（连多选一起清空，光标复原）；选取状态下再点一次工具栏图标也是取消。
 
 ## 选项
 
@@ -26,17 +30,17 @@
 
 ```
 manifest.json
-icons/                   16/32/48/128 图标
+icons/                   16/32/48/128 扩展图标；print32.png 用作打印态光标
 options/                 选项页（一级 div 分页开关）
 LICENSE                  PolyForm Noncommercial 1.0.0
 src/background.js        点击图标 → 向当前标签页注入选取脚本
-src/content/picker.js    选取浮层 + 打印隔离逻辑（单文件，无外部依赖）
+src/content/picker.js    选取浮层 + 多选/打印态 + 打印隔离逻辑（单文件，无外部依赖）
 ```
 
 ## 实现要点
 
 - 浮层放在 Shadow DOM 里，且 `pointer-events: none`，不影响 `elementFromPoint` 命中页面的真实元素，也不会被站点样式污染。
-- 打印时不给选中元素套克隆，而是**逐级隐藏兄弟节点**（`data-pp-hide` + `@media print { display:none !important }`），并给祖先链（`data-pp-chain`）还原 `position: static / overflow: visible / height: auto`，避免元素被固定定位或滚动容器裁成半页。
+- 打印隔离：把「所有选中元素及其祖先链」取并集作为保留集合（`data-pp-chain`），集合外的兄弟节点逐级隐藏（`data-pp-hide` + `@media print { display:none !important }`），保留链还原 `position: static / overflow: visible / height: auto`，避免被固定定位或滚动容器裁成半页。单选与多选走同一套逻辑。
 - 加了 `print-color-adjust: exact`，背景色、底纹按原样打印。
 - 打印时清空 `html` / `body` 的底色（连带背景图、渐变），避免整页灰底被一起打印；只去掉选中元素自身的 `box-shadow`，内部卡片阴影保留。
 - 选中元素的一级子节点若是并列的若干 `div`，从第二个起自动加分页（`break-before: page`），首个留在第一页；父容器是 flex/grid（会忽略分页规则）或子节点是行内级时，打印时临时转成块级让分页生效。该行为默认关闭，可在选项页打开（`chrome.storage.sync` 存 `divPageBreak`，打印时实时读取）。
