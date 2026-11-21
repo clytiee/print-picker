@@ -137,8 +137,9 @@
     `<div class="pp-sel"></div>` +
     `<div class="pp-box"></div>` +
     `<div class="pp-tag"><span class="pp-brand">Print Picker</span><span class="pp-name"></span><span class="pp-dim"></span></div>` +
-    `<div class="pp-bar"><span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>选上级` +
-    `<span class="pp-key">↓</span>回下层<span class="pp-key">Enter</span>打印<span class="pp-key">Esc</span>取消</div>`;
+    `<div class="pp-bar"><span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>` +
+    `<span class="pp-key">Tab</span>选上级<span class="pp-key">↓</span>回下层` +
+    `<span class="pp-key">Enter</span>打印<span class="pp-key">Esc</span>取消</div>`;
 
   const selLayer = shadow.querySelector(".pp-sel");
   const boxEl = shadow.querySelector(".pp-box");
@@ -182,16 +183,17 @@
     if (inPrintMode()) {
       barEl.innerHTML =
         `<span class="pp-key">点击</span>任意位置打印已选 ${selections.length} 块` +
-        `<span class="pp-key">↑</span><span class="pp-key">↓</span>调整刚选的` +
+        `<span class="pp-key">↑</span><span class="pp-key">Tab</span>调整刚选的` +
         `<span class="pp-key">Ctrl</span>点击增删<span class="pp-key">Esc</span>取消`;
     } else if (selections.length) {
       barEl.innerHTML =
         `已选 ${selections.length} 块 · 松开 Ctrl 后点击任意位置打印` +
-        `<span class="pp-key">↑</span><span class="pp-key">↓</span>调整刚选的` +
+        `<span class="pp-key">↑</span><span class="pp-key">Tab</span>调整刚选的` +
         `<span class="pp-key">Ctrl</span>点击增删<span class="pp-key">Esc</span>取消`;
     } else {
       barEl.innerHTML =
-        `<span class="pp-key">Ctrl</span>点击多选<span class="pp-key">↑</span>选上级` +
+        `<span class="pp-key">Ctrl</span>点击多选` +
+        `<span class="pp-key">↑</span><span class="pp-key">Tab</span>选上级` +
         `<span class="pp-key">↓</span>回下层<span class="pp-key">Enter</span>打印` +
         `<span class="pp-key">Esc</span>取消`;
     }
@@ -494,14 +496,17 @@
       }
       return;
     }
-    if (k === "ArrowUp") {
+    // ↑ / Tab = 选上级；↓ / Shift+Tab = 退回下层
+    const up = k === "ArrowUp" || (k === "Tab" && !e.shiftKey);
+    const down = k === "ArrowDown" || (k === "Tab" && e.shiftKey);
+    if (up) {
       block(e);
       if (selections.length) { stepSelection(true); return; }
       if (!chain.length) return;
       index = Math.min(index + 1, chain.length - 1);
       locked = true;
       queuePaint();
-    } else if (k === "ArrowDown") {
+    } else if (down) {
       block(e);
       if (selections.length) { stepSelection(false); return; }
       if (!chain.length) return;
