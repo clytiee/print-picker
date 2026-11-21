@@ -41,7 +41,7 @@ body {
 }
 
 .logo {
-  border-radius: 8px;
+  border-radius: 0;
   flex: none;
 }
 
